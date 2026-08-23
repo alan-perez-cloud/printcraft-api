@@ -1,0 +1,14 @@
+# Build
+pdfworker.exe
+
+# Generados
+*.pdf
+
+# SQL local
+fix_*.sql
+seed.sql
+
+
+
+# temp files
+*.txt
