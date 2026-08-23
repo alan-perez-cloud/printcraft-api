@@ -6,16 +6,29 @@ type KeyPos struct {
 	X, Y, Width, Height float64
 }
 
-// testLayout: 4 teclas en fila, layout de prueba (placeholder hasta tener
-// el layout real armado en Figma/HTML). Coordenadas en mm.
-var testLayout = []KeyPos{
-	{X: 5, Y: 5, Width: 18, Height: 18},
-	{X: 26, Y: 5, Width: 18, Height: 18},
-	{X: 47, Y: 5, Width: 18, Height: 18},
-	{X: 68, Y: 5, Width: 18, Height: 18},
+// testLayoutGrid genera una grilla simple de N teclas (placeholder hasta
+// tener el layout real armado en Figma/HTML). Coordenadas en mm.
+func testLayoutGrid(count int, cols int) []KeyPos {
+	const keyW, keyH, gap = 12.0, 12.0, 2.0
+	keys := make([]KeyPos, count)
+	for i := 0; i < count; i++ {
+		row := i / cols
+		col := i % cols
+		keys[i] = KeyPos{
+			X:      5 + float64(col)*(keyW+gap),
+			Y:      5 + float64(row)*(keyH+gap),
+			Width:  keyW,
+			Height: keyH,
+		}
+	}
+	return keys
 }
 
-const (
-	testSheetWidth  = 100.0
-	testSheetHeight = 60.0
+// testLayout: grilla de 47 teclas (12 columnas), suficiente para el
+// AZERTY completo cargado en la DB. Placeholder de posición, no diseño final.
+var testLayout = testLayoutGrid(47, 12)
+
+var (
+	testSheetWidth  = 5 + 12.0*12 + 2.0*11 + 5
+	testSheetHeight = 5 + 12.0*4 + 2.0*3 + 5
 )

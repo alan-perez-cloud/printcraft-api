@@ -14,9 +14,12 @@ import (
 )
 
 // Key es la tecla ya combinada: posición (del template) + carácter primario
-// + carácter secundario opcional + colores (del key_mode elegido).
+// (con sus hasta 3 slots: base/shift/altgr) + carácter secundario opcional
+// + colores (del key_mode elegido).
 type Key struct {
-	PrimaryChar   string
+	Base          string
+	Shift         string // "" si no aplica
+	AltGr         string // "" si no aplica
 	SecondaryChar string // "" si no hay alfabeto secundario
 	X             float64
 	Y             float64
@@ -63,8 +66,9 @@ func buildDesign(ctx context.Context, conn *pgx.Conn, cfg *DesignConfig) (*Desig
 
 	keys := make([]Key, len(testLayout))
 	for i, pos := range testLayout {
+		lk := primaryKeys[i]
 		k := Key{
-			PrimaryChar: primaryKeys[i].Base,
+			Base:        lk.Base,
 			X:           pos.X,
 			Y:           pos.Y,
 			Width:       pos.Width,
@@ -72,6 +76,12 @@ func buildDesign(ctx context.Context, conn *pgx.Conn, cfg *DesignConfig) (*Desig
 			Bg:          palette.Bg,
 			FgPrimary:   palette.FgPrimary,
 			FgSecondary: palette.FgSecondary,
+		}
+		if lk.Shift != nil {
+			k.Shift = *lk.Shift
+		}
+		if lk.AltGr != nil {
+			k.AltGr = *lk.AltGr
 		}
 		if secondaryKeys != nil && i < len(secondaryKeys) {
 			k.SecondaryChar = secondaryKeys[i].Base
@@ -123,10 +133,26 @@ func renderDesign(d *Design, outPath string) error {
 		posY := d.SheetHeight - k.Y - k.Height
 		ctx.DrawPath(k.X, posY, rect)
 
-		// carácter primario, grande, centrado
-		facePrimary := primaryFamily.Face(10.0, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
-		primaryText := canvas.NewTextLine(facePrimary, k.PrimaryChar, canvas.Center)
-		ctx.DrawText(k.X+k.Width/2, posY+k.Height/2-3.5, primaryText)
+		// carácter base: siempre grande, centrado (los slots chicos van
+		// en las esquinas y no le quitan espacio al centro).
+		faceBase := primaryFamily.Face(9.0, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
+		baseText := canvas.NewTextLine(faceBase, k.Base, canvas.Center)
+		ctx.DrawText(k.X+k.Width/2, posY+k.Height/2-3, baseText)
+
+		// shift: chico, esquina superior izquierda
+		if k.Shift != "" {
+			faceShift := primaryFamily.Face(4.5, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
+			shiftText := canvas.NewTextLine(faceShift, k.Shift, canvas.Left)
+			ctx.DrawText(k.X+1.5, posY+k.Height-3.5, shiftText)
+		}
+
+		// altgr: chico, esquina inferior derecha (la superior derecha
+		// queda reservada siempre para el alfabeto secundario)
+		if k.AltGr != "" {
+			faceAltGr := primaryFamily.Face(4.5, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
+			altGrText := canvas.NewTextLine(faceAltGr, k.AltGr, canvas.Right)
+			ctx.DrawText(k.X+k.Width-1.5, posY+2, altGrText)
+		}
 
 		// carácter secundario, chico, esquina superior derecha (si existe)
 		if k.SecondaryChar != "" && secondaryFamily != nil {

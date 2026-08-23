@@ -8,7 +8,8 @@ pdfworker.exe
 fix_*.sql
 seed.sql
 
-
+# Imágenes generadas
+*.png
 
 # temp files
 *.txt

@@ -9,9 +9,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 )
 
 var db *pgxpool.Pool
+var rdb *redis.Client
 
 type Design struct {
 	ID         int             `json:"id"`
@@ -41,6 +43,19 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// redis conection
+
+	rdb = redis.NewClient(&redis.Options{
+    Addr: "localhost:6379",
+})
+
+if err := rdb.Ping(context.Background()).Err(); err != nil {
+    fmt.Println("Error al conectar a Redis:", err)
+    os.Exit(1)
+}
+fmt.Println("Conectado exitosamente a Redis")
+
 
 	fmt.Println("Conectado exitosamente a PostgreSQL")
 
@@ -175,6 +190,11 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(ctx); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	err = rdb.LPush(ctx, "pdf_jobs_queue", o.ID).Err()
+	if err != nil {
+		fmt.Println("Advertencia: no se pudo encolar el job:", err)
 	}
 
 	o.Status = "paid"
