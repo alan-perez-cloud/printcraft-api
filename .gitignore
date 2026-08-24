@@ -1,4 +1,4 @@
 .env
 *.exe
 /bin/
-/tmp/
+/tmp/printcraft_backup.sql

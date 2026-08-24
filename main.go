@@ -44,19 +44,15 @@ func main() {
 	}
 	defer db.Close()
 
-	// redis conection
-
 	rdb = redis.NewClient(&redis.Options{
-    Addr: "localhost:6379",
-})
+		Addr: "localhost:6379",
+	})
 
-if err := rdb.Ping(context.Background()).Err(); err != nil {
-    fmt.Println("Error al conectar a Redis:", err)
-    os.Exit(1)
-}
-fmt.Println("Conectado exitosamente a Redis")
-
-
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		fmt.Println("Error al conectar a Redis:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Conectado exitosamente a Redis")
 	fmt.Println("Conectado exitosamente a PostgreSQL")
 
 	mux := http.NewServeMux()
@@ -65,9 +61,11 @@ fmt.Println("Conectado exitosamente a Redis")
 	mux.HandleFunc("PUT /api/v1/designs/{id}", updateDesign)
 	mux.HandleFunc("DELETE /api/v1/designs/{id}", deleteDesign)
 	mux.HandleFunc("POST /api/v1/orders", createOrder)
+	mux.HandleFunc("POST /api/v1/auth/register", register)
+	mux.HandleFunc("POST /api/v1/auth/login", login)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
-	http.ListenAndServe(":8080", mux)
+	http.ListenAndServe(":8080", corsMiddleware(mux))
 }
 
 func createDesign(w http.ResponseWriter, r *http.Request) {
@@ -200,4 +198,19 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 	o.Status = "paid"
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(o)
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
