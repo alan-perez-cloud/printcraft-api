@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"github.com/tdewolff/canvas"
 	"github.com/tdewolff/canvas/renderers/pdf"
 )
@@ -125,36 +127,27 @@ func renderDesign(d *Design, outPath string) error {
 	}
 
 	for _, k := range d.Keys {
-		// fondo de la tecla (rectángulo)
 		ctx.SetFillColor(hexColor(k.Bg))
 		rect := canvas.Rectangle(k.Width, k.Height)
-		// canvas usa coordenadas cartesianas (Y crece hacia arriba);
-		// convertimos desde Y "hacia abajo" tipo pantalla/imprenta.
 		posY := d.SheetHeight - k.Y - k.Height
 		ctx.DrawPath(k.X, posY, rect)
 
-		// carácter base: siempre grande, centrado (los slots chicos van
-		// en las esquinas y no le quitan espacio al centro).
 		faceBase := primaryFamily.Face(9.0, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
 		baseText := canvas.NewTextLine(faceBase, k.Base, canvas.Center)
 		ctx.DrawText(k.X+k.Width/2, posY+k.Height/2-3, baseText)
 
-		// shift: chico, esquina superior izquierda
 		if k.Shift != "" {
 			faceShift := primaryFamily.Face(4.5, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
 			shiftText := canvas.NewTextLine(faceShift, k.Shift, canvas.Left)
 			ctx.DrawText(k.X+1.5, posY+k.Height-3.5, shiftText)
 		}
 
-		// altgr: chico, esquina inferior derecha (la superior derecha
-		// queda reservada siempre para el alfabeto secundario)
 		if k.AltGr != "" {
 			faceAltGr := primaryFamily.Face(4.5, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
 			altGrText := canvas.NewTextLine(faceAltGr, k.AltGr, canvas.Right)
 			ctx.DrawText(k.X+k.Width-1.5, posY+2, altGrText)
 		}
 
-		// carácter secundario, chico, esquina superior derecha (si existe)
 		if k.SecondaryChar != "" && secondaryFamily != nil {
 			faceSecondary := secondaryFamily.Face(5.0, hexColor(k.FgSecondary), canvas.FontRegular, canvas.FontNormal)
 			secondaryText := canvas.NewTextLine(faceSecondary, k.SecondaryChar, canvas.Right)
@@ -175,8 +168,6 @@ func renderDesign(d *Design, outPath string) error {
 
 func main() {
 	if err := godotenv.Load("../.env"); err != nil {
-		// si corrés esto desde la raíz del proyecto en vez de /pdfworker,
-		// probá también ".env" sin el "../"
 		if err2 := godotenv.Load(".env"); err2 != nil {
 			panic("no se encontró .env: " + err.Error())
 		}
@@ -193,31 +184,65 @@ func main() {
 	}
 	defer conn.Close(ctx)
 
-	designID := 1
-	if len(os.Args) > 1 {
-		id, err := strconv.Atoi(os.Args[1])
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		panic("conectando a redis: " + err.Error())
+	}
+
+	os.MkdirAll("output", 0755)
+
+	fmt.Println("Worker escuchando pdf_jobs_queue...")
+
+	for {
+		result, err := rdb.BRPop(ctx, 0, "pdf_jobs_queue").Result()
 		if err != nil {
-			panic("id de design inválido: " + os.Args[1])
+			fmt.Println("Error leyendo de la cola:", err)
+			continue
 		}
-		designID = id
-	}
 
-	cfg, err := fetchDesign(ctx, conn, designID)
+		orderID, err := strconv.Atoi(result[1])
+		if err != nil {
+			fmt.Println("order_id inválido en la cola:", result[1])
+			continue
+		}
+
+		fmt.Printf("Procesando order %d...\n", orderID)
+		if err := processJob(ctx, conn, orderID); err != nil {
+			fmt.Printf("Error procesando order %d: %v\n", orderID, err)
+			conn.Exec(ctx, "UPDATE pdf_jobs SET status='failed' WHERE order_id=$1", orderID)
+			continue
+		}
+		fmt.Printf("Order %d: PDF generado\n", orderID)
+	}
+}
+
+func processJob(ctx context.Context, conn *pgx.Conn, orderID int) error {
+	var rawConfig []byte
+	err := conn.QueryRow(ctx,
+		"SELECT config FROM pdf_jobs WHERE order_id=$1", orderID,
+	).Scan(&rawConfig)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("buscando pdf_job: %w", err)
 	}
-	fmt.Printf("design %d: primary=%s secondary=%v key_mode=%s\n", designID, cfg.PrimaryAlphabet, cfg.SecondaryAlphabet, cfg.KeyMode)
 
-	design, err := buildDesign(ctx, conn, cfg)
+	var cfg DesignConfig
+	if err := json.Unmarshal(rawConfig, &cfg); err != nil {
+		return fmt.Errorf("parseando config: %w", err)
+	}
+
+	design, err := buildDesign(ctx, conn, &cfg)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("construyendo diseño: %w", err)
 	}
 
-	outPath := fmt.Sprintf("design_%d.pdf", designID)
+	outPath := fmt.Sprintf("output/order_%d.pdf", orderID)
 	if err := renderDesign(design, outPath); err != nil {
-		panic(err)
+		return fmt.Errorf("renderizando PDF: %w", err)
 	}
 
-	info, _ := os.Stat(outPath)
-	fmt.Printf("PDF generado: %s (%d bytes)\n", outPath, info.Size())
+	_, err = conn.Exec(ctx,
+		"UPDATE pdf_jobs SET status='done', file_url=$1 WHERE order_id=$2",
+		outPath, orderID,
+	)
+	return err
 }
