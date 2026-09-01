@@ -2,3 +2,4 @@
 *.exe
 /bin/
 /tmp/printcraft_backup.sql
+printcraft_backup.sql
