@@ -63,6 +63,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/orders", createOrder)
 	mux.HandleFunc("POST /api/v1/auth/register", register)
 	mux.HandleFunc("POST /api/v1/auth/login", login)
+	mux.HandleFunc("POST /api/v1/webhooks/lemonsqueezy", lemonSqueezyWebhook)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", corsMiddleware(mux))
@@ -153,15 +154,8 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback(ctx)
-
-	err = tx.QueryRow(ctx,
-		"INSERT INTO orders (design_id, guest_token, status, amount) VALUES ($1, $2, 'paid', $3) RETURNING id",
+	err := db.QueryRow(ctx,
+		"INSERT INTO orders (design_id, guest_token, status, amount) VALUES ($1, $2, 'pending', $3) RETURNING id",
 		o.DesignID, o.GuestToken, o.Amount,
 	).Scan(&o.ID)
 	if err != nil {
@@ -169,35 +163,19 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var config json.RawMessage
-	err = tx.QueryRow(ctx, "SELECT config FROM designs WHERE id=$1", o.DesignID).Scan(&config)
+	checkoutURL, err := CreateCheckout(o.ID, o.Amount, o.GuestToken)
 	if err != nil {
-		http.Error(w, "Diseño no encontrado", http.StatusBadRequest)
+		http.Error(w, "no se pudo generar el pago", http.StatusBadGateway)
 		return
 	}
 
-	_, err = tx.Exec(ctx,
-		"INSERT INTO pdf_jobs (order_id, status, config) VALUES ($1, 'pending', $2)",
-		o.ID, config,
-	)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = rdb.LPush(ctx, "pdf_jobs_queue", o.ID).Err()
-	if err != nil {
-		fmt.Println("Advertencia: no se pudo encolar el job:", err)
-	}
-
-	o.Status = "paid"
+	o.Status = "pending"
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(o)
+	json.NewEncoder(w).Encode(map[string]any{
+		"id":           o.ID,
+		"status":       o.Status,
+		"checkout_url": checkoutURL,
+	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
