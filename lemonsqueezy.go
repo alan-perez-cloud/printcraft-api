@@ -14,7 +14,12 @@ import (
 	"strconv"
 )
 
-func CreateCheckout(orderID int, amount float64, guestToken string) (string, error) {
+func CreateCheckout(orderID int, product string, amount float64, guestToken string) (string, error) {
+	variantID := os.Getenv("LEMONSQUEEZY_VARIANT_PDF")
+	if product == "print" {
+		variantID = os.Getenv("LEMONSQUEEZY_VARIANT_PRINT")
+	}
+
 	payload := map[string]any{
 		"data": map[string]any{
 			"type": "checkouts",
@@ -30,7 +35,7 @@ func CreateCheckout(orderID int, amount float64, guestToken string) (string, err
 					"data": map[string]string{"type": "stores", "id": os.Getenv("LEMONSQUEEZY_STORE_ID")},
 				},
 				"variant": map[string]any{
-					"data": map[string]string{"type": "variants", "id": os.Getenv("LEMONSQUEEZY_VARIANT_ID")},
+					"data": map[string]string{"type": "variants", "id": variantID},
 				},
 			},
 		},

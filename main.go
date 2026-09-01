@@ -113,6 +113,7 @@ type Order struct {
 	GuestToken string  `json:"guest_token"`
 	Status     string  `json:"status"`
 	Amount     float64 `json:"amount"`
+	Product    string  `json:"product"`
 }
 
 func updateDesign(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +164,7 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	checkoutURL, err := CreateCheckout(o.ID, o.Amount, o.GuestToken)
+	checkoutURL, err := CreateCheckout(o.ID, o.Product, o.Amount, o.GuestToken)
 	if err != nil {
 		http.Error(w, "no se pudo generar el pago", http.StatusBadGateway)
 		return
