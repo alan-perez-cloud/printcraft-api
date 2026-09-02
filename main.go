@@ -64,6 +64,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/auth/register", register)
 	mux.HandleFunc("POST /api/v1/auth/login", login)
 	mux.HandleFunc("POST /api/v1/webhooks/lemonsqueezy", lemonSqueezyWebhook)
+	mux.HandleFunc("GET /api/v1/alphabets", getAlphabets)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", corsMiddleware(mux))
@@ -192,4 +193,26 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func getAlphabets(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(context.Background(), "SELECT alphabet_name FROM keyboard_layouts ORDER BY alphabet_name")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		names = append(names, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(names)
 }
