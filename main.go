@@ -65,6 +65,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/auth/login", login)
 	mux.HandleFunc("POST /api/v1/webhooks/lemonsqueezy", lemonSqueezyWebhook)
 	mux.HandleFunc("GET /api/v1/alphabets", getAlphabets)
+	mux.HandleFunc("GET /api/v1/keyboard-layouts/{alphabet}", getKeyboardLayout)
 
 	fmt.Println("Servidor corriendo en http://localhost:8080")
 	http.ListenAndServe(":8080", corsMiddleware(mux))
@@ -215,4 +216,18 @@ func getAlphabets(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(names)
+}
+
+func getKeyboardLayout(w http.ResponseWriter, r *http.Request) {
+	alphabet := r.PathValue("alphabet")
+	var raw json.RawMessage
+	err := db.QueryRow(context.Background(),
+		"SELECT keys FROM keyboard_layouts WHERE alphabet_name=$1", alphabet,
+	).Scan(&raw)
+	if err != nil {
+		http.Error(w, "alfabeto no encontrado", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(raw)
 }
