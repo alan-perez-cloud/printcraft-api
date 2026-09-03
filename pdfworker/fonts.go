@@ -9,6 +9,8 @@ var fontPathForAlphabet = map[string]string{
 	"hiragana":  `C:\Windows\Fonts\msgothic.ttc`,
 	"arabic":    `C:\Windows\Fonts\tahoma.ttf`,
 	"azerty_fr": `C:\Windows\Fonts\arialbd.ttf`,
+	"hangul":    `C:\Windows\Fonts\malgunbd.ttf`,
+	"cangjie":   `C:\Windows\Fonts\msyhbd.ttc`,
 }
 
 const defaultFontPath = `C:\Windows\Fonts\arialbd.ttf`

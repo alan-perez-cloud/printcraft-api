@@ -12,7 +12,8 @@ import (
 type DesignConfig struct {
 	PrimaryAlphabet   string  `json:"primary_alphabet"`
 	SecondaryAlphabet *string `json:"secondary_alphabet"`
-	KeyMode           string  `json:"key_mode"` // "black" | "white" | "gray"
+	SecondaryColor    *string `json:"secondary_color"`
+	KeyMode           string  `json:"keycap_mode"` // ojo: coincide con lo que manda el frontend, no "key_mode"
 }
 
 // fetchDesign trae el config de un design por id.

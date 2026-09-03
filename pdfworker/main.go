@@ -15,34 +15,31 @@ import (
 	"github.com/tdewolff/canvas/renderers/pdf"
 )
 
-// Key es la tecla ya combinada: posición (del template) + carácter primario
-// (con sus hasta 3 slots: base/shift/altgr) + carácter secundario opcional
-// + colores (del key_mode elegido).
 type Key struct {
-	Base          string
-	Shift         string // "" si no aplica
-	AltGr         string // "" si no aplica
-	SecondaryChar string // "" si no hay alfabeto secundario
-	X             float64
-	Y             float64
-	Width         float64
-	Height        float64
-	Bg            string
-	FgPrimary     string
-	FgSecondary   string
+	Base           string
+	Shift          string
+	AltGr          string
+	SecondaryChar  string
+	SecondaryShift string
+	SecondaryAltGr string
+	X              float64
+	Y              float64
+	Width          float64
+	Height         float64
+	Bg             string
+	FgPrimary      string
+	FgCorner       string
+	FgSecondary    string
 }
 
-// Design es lo que efectivamente se dibuja: hoja + lista de teclas ya resueltas.
 type Design struct {
 	SheetWidth        float64
 	SheetHeight       float64
 	Keys              []Key
 	PrimaryAlphabet   string
-	SecondaryAlphabet string // "" si no hay secundario
+	SecondaryAlphabet string
 }
 
-// buildDesign combina el template de layout físico con las teclas de los
-// alfabetos elegidos (primario y opcionalmente secundario) y el key_mode.
 func buildDesign(ctx context.Context, conn *pgx.Conn, cfg *DesignConfig) (*Design, error) {
 	primaryKeys, err := fetchKeyboardLayout(ctx, conn, cfg.PrimaryAlphabet)
 	if err != nil {
@@ -62,6 +59,11 @@ func buildDesign(ctx context.Context, conn *pgx.Conn, cfg *DesignConfig) (*Desig
 		return nil, err
 	}
 
+	secondaryColor := palette.FgSecondary
+	if cfg.SecondaryColor != nil && *cfg.SecondaryColor != "" {
+		secondaryColor = *cfg.SecondaryColor
+	}
+
 	if len(primaryKeys) < len(testLayout) {
 		return nil, fmt.Errorf("el alfabeto %q tiene menos teclas (%d) que el layout (%d)", cfg.PrimaryAlphabet, len(primaryKeys), len(testLayout))
 	}
@@ -77,7 +79,8 @@ func buildDesign(ctx context.Context, conn *pgx.Conn, cfg *DesignConfig) (*Desig
 			Height:      pos.Height,
 			Bg:          palette.Bg,
 			FgPrimary:   palette.FgPrimary,
-			FgSecondary: palette.FgSecondary,
+			FgCorner:    palette.FgCorner,
+			FgSecondary: secondaryColor,
 		}
 		if lk.Shift != nil {
 			k.Shift = *lk.Shift
@@ -86,7 +89,14 @@ func buildDesign(ctx context.Context, conn *pgx.Conn, cfg *DesignConfig) (*Desig
 			k.AltGr = *lk.AltGr
 		}
 		if secondaryKeys != nil && i < len(secondaryKeys) {
-			k.SecondaryChar = secondaryKeys[i].Base
+			sk := secondaryKeys[i]
+			k.SecondaryChar = sk.Base
+			if sk.Shift != nil {
+				k.SecondaryShift = *sk.Shift
+			}
+			if sk.AltGr != nil {
+				k.SecondaryAltGr = *sk.AltGr
+			}
 		}
 		keys[i] = k
 	}
@@ -137,19 +147,31 @@ func renderDesign(d *Design, outPath string) error {
 		ctx.DrawText(k.X+k.Width/2, posY+k.Height/2-3, baseText)
 
 		if k.Shift != "" {
-			faceShift := primaryFamily.Face(4.5, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
+			faceShift := primaryFamily.Face(4.5, hexColor(k.FgCorner), canvas.FontRegular, canvas.FontNormal)
 			shiftText := canvas.NewTextLine(faceShift, k.Shift, canvas.Left)
 			ctx.DrawText(k.X+1.5, posY+k.Height-3.5, shiftText)
 		}
 
+		if k.SecondaryShift != "" && secondaryFamily != nil {
+			faceSecShift := secondaryFamily.Face(4.5, hexColor(k.FgSecondary), canvas.FontRegular, canvas.FontNormal)
+			secShiftText := canvas.NewTextLine(faceSecShift, k.SecondaryShift, canvas.Left)
+			ctx.DrawText(k.X+6, posY+k.Height-3.5, secShiftText)
+		}
+
 		if k.AltGr != "" {
-			faceAltGr := primaryFamily.Face(4.5, hexColor(k.FgPrimary), canvas.FontRegular, canvas.FontNormal)
+			faceAltGr := primaryFamily.Face(4.5, hexColor(k.FgCorner), canvas.FontRegular, canvas.FontNormal)
 			altGrText := canvas.NewTextLine(faceAltGr, k.AltGr, canvas.Right)
-			ctx.DrawText(k.X+k.Width-1.5, posY+2, altGrText)
+			ctx.DrawText(k.X+k.Width-5.5, posY+2, altGrText)
+		}
+
+		if k.SecondaryAltGr != "" && secondaryFamily != nil {
+			faceSecAltGr := secondaryFamily.Face(4.5, hexColor(k.FgSecondary), canvas.FontRegular, canvas.FontNormal)
+			secAltGrText := canvas.NewTextLine(faceSecAltGr, k.SecondaryAltGr, canvas.Right)
+			ctx.DrawText(k.X+k.Width-1.5, posY+2, secAltGrText)
 		}
 
 		if k.SecondaryChar != "" && secondaryFamily != nil {
-			faceSecondary := secondaryFamily.Face(5.0, hexColor(k.FgSecondary), canvas.FontRegular, canvas.FontNormal)
+			faceSecondary := secondaryFamily.Face(6.5, hexColor(k.FgSecondary), canvas.FontRegular, canvas.FontBold)
 			secondaryText := canvas.NewTextLine(faceSecondary, k.SecondaryChar, canvas.Right)
 			ctx.DrawText(k.X+k.Width-2, posY+k.Height-4, secondaryText)
 		}
