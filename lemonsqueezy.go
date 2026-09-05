@@ -90,6 +90,17 @@ func lemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 				OrderID string `json:"order_id"`
 			} `json:"custom_data"`
 		} `json:"meta"`
+		Data struct {
+			Attributes struct {
+				UserEmail string `json:"user_email"`
+				TestMode  bool   `json:"test_mode"`
+				Total     int    `json:"total"`
+				Currency  string `json:"currency"`
+				Urls      struct {
+					Receipt string `json:"receipt"`
+				} `json:"urls"`
+			} `json:"attributes"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &event); err != nil {
 		http.Error(w, "JSON inválido", http.StatusBadRequest)
@@ -117,7 +128,15 @@ func lemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var designID int
 	err = tx.QueryRow(ctx,
-		"UPDATE orders SET status='paid' WHERE id=$1 RETURNING design_id", orderID,
+		`UPDATE orders 
+		 SET status='paid', customer_email=$2, test_mode=$3, receipt_url=$4, ls_total=$5, ls_currency=$6
+		 WHERE id=$1 RETURNING design_id`,
+		orderID,
+		event.Data.Attributes.UserEmail,
+		event.Data.Attributes.TestMode,
+		event.Data.Attributes.Urls.Receipt,
+		event.Data.Attributes.Total,
+		event.Data.Attributes.Currency,
 	).Scan(&designID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
