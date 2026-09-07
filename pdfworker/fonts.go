@@ -1,23 +1,26 @@
 package main
 
-// fontPathForAlphabet: qué archivo de fuente usar según el alfabeto.
-// Windows ya trae estas instaladas, no hace falta descargar nada:
-//   - msgothic.ttc: japonés (hiragana, katakana, kanji)
-//   - tahoma.ttf: buen soporte de árabe (y latín también)
-//   - arialbd.ttf: latín (default para alfabetos con teclado físico normal)
-var fontPathForAlphabet = map[string]string{
-	"hiragana":  `C:\Windows\Fonts\msgothic.ttc`,
-	"arabic":    `C:\Windows\Fonts\tahoma.ttf`,
-	"azerty_fr": `C:\Windows\Fonts\arialbd.ttf`,
-	"hangul":    `C:\Windows\Fonts\malgunbd.ttf`,
-	"cangjie":   `C:\Windows\Fonts\msyhbd.ttc`,
+import "os"
+import "path/filepath"
+
+var fontFiles = map[string]string{
+	"hiragana":  "msgothic.ttc",
+	"arabic":    "tahoma.ttf",
+	"azerty_fr": "arialbd.ttf",
+	"hangul":    "malgunbd.ttf",
+	"cangjie":   "msyhbd.ttc",
 }
 
-const defaultFontPath = `C:\Windows\Fonts\arialbd.ttf`
-
 func fontPathFor(alphabetName string) string {
-	if p, ok := fontPathForAlphabet[alphabetName]; ok {
-		return p
+	dir := os.Getenv("FONT_DIR")
+	if dir == "" {
+		dir = `C:\Windows\Fonts`
 	}
-	return defaultFontPath
+
+	file, ok := fontFiles[alphabetName]
+	if !ok {
+		file = "arialbd.ttf"
+	}
+
+	return filepath.Join(dir, file)
 }

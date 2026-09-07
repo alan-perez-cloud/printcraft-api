@@ -13,7 +13,33 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/tdewolff/canvas"
 	"github.com/tdewolff/canvas/renderers/pdf"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
+
+func uploadToS3(ctx context.Context, localPath, key string) error {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("cargando config aws: %w", err)
+	}
+	client := s3.NewFromConfig(cfg)
+
+	f, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("abriendo pdf: %w", err)
+	}
+	defer f.Close()
+
+	_, err = client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(os.Getenv("S3_BUCKET")),
+		Key:         aws.String(key),
+		Body:        f,
+		ContentType: aws.String("application/pdf"),
+	})
+	return err
+}
 
 type Key struct {
 	Base           string
@@ -257,14 +283,27 @@ func processJob(ctx context.Context, conn *pgx.Conn, orderID int) error {
 		return fmt.Errorf("construyendo diseño: %w", err)
 	}
 
-	outPath := fmt.Sprintf("output/order_%d.pdf", orderID)
+		outPath := fmt.Sprintf("output/order_%d.pdf", orderID)
 	if err := renderDesign(design, outPath); err != nil {
 		return fmt.Errorf("renderizando PDF: %w", err)
 	}
 
-	_, err = conn.Exec(ctx,
-		"UPDATE pdf_jobs SET status='done', file_url=$1 WHERE order_id=$2",
-		outPath, orderID,
-	)
+	s3Key := fmt.Sprintf("order_%d.pdf", orderID)
+
+var fileURL string
+
+if os.Getenv("ENV") == "production" {
+	if err := uploadToS3(ctx, outPath, s3Key); err != nil {
+		return fmt.Errorf("subiendo a s3: %w", err)
+	}
+	fileURL = s3Key
+} else {
+	fileURL = outPath
+}
+
+_, err = conn.Exec(ctx,
+	"UPDATE pdf_jobs SET status='done', file_url=$1 WHERE order_id=$2",
+	fileURL, orderID,
+)
 	return err
 }
