@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
@@ -39,6 +40,23 @@ func uploadToS3(ctx context.Context, localPath, key string) error {
 		ContentType: aws.String("application/pdf"),
 	})
 	return err
+}
+
+func presignURL(ctx context.Context, bucket, key string) (string, error) {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+	client := s3.NewFromConfig(cfg)
+	presignClient := s3.NewPresignClient(client)
+	req, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(7*24*time.Hour))
+	if err != nil {
+		return "", err
+	}
+	return req.URL, nil
 }
 
 type Key struct {
@@ -283,27 +301,48 @@ func processJob(ctx context.Context, conn *pgx.Conn, orderID int) error {
 		return fmt.Errorf("construyendo diseño: %w", err)
 	}
 
-		outPath := fmt.Sprintf("output/order_%d.pdf", orderID)
+	outPath := fmt.Sprintf("output/order_%d.pdf", orderID)
 	if err := renderDesign(design, outPath); err != nil {
 		return fmt.Errorf("renderizando PDF: %w", err)
 	}
 
-	s3Key := fmt.Sprintf("order_%d.pdf", orderID)
+	fileRef := outPath
+	downloadURL := outPath
 
-var fileURL string
+	if os.Getenv("ENV") == "production" {
+		s3Key := fmt.Sprintf("order_%d.pdf", orderID)
+		if err := uploadToS3(ctx, outPath, s3Key); err != nil {
+			return fmt.Errorf("subiendo a s3: %w", err)
+		}
+		fileRef = s3Key
 
-if os.Getenv("ENV") == "production" {
-	if err := uploadToS3(ctx, outPath, s3Key); err != nil {
-		return fmt.Errorf("subiendo a s3: %w", err)
+		url, err := presignURL(ctx, os.Getenv("S3_BUCKET"), s3Key)
+		if err == nil {
+			downloadURL = url
+		}
 	}
-	fileURL = s3Key
-} else {
-	fileURL = outPath
-}
 
-_, err = conn.Exec(ctx,
-	"UPDATE pdf_jobs SET status='done', file_url=$1 WHERE order_id=$2",
-	fileURL, orderID,
-)
-	return err
+	_, err = conn.Exec(ctx,
+		"UPDATE pdf_jobs SET status='done', file_url=$1 WHERE order_id=$2",
+		fileRef, orderID,
+	)
+	if err != nil {
+		return err
+	}
+
+	var customerEmail, fulfillmentType string
+	err = conn.QueryRow(ctx,
+		"SELECT customer_email, fulfillment_type FROM orders WHERE id=$1", orderID,
+	).Scan(&customerEmail, &fulfillmentType)
+	if err == nil && fulfillmentType == "digital" && customerEmail != "" {
+		sendDigitalEmail(OrderEmailData{
+			CustomerEmail:     customerEmail,
+			PrimaryAlphabet:   cfg.PrimaryAlphabet,
+			SecondaryAlphabet: "",
+			KeycapMode:        string(cfg.KeyMode),
+			DownloadURL:       downloadURL,
+		})
+	}
+
+	return nil
 }

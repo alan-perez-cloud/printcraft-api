@@ -126,18 +126,19 @@ func lemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
-	var designID int
+		var designID int
+	var fulfillmentType string
 	err = tx.QueryRow(ctx,
 		`UPDATE orders 
 		 SET status='paid', customer_email=$2, test_mode=$3, receipt_url=$4, ls_total=$5, ls_currency=$6
-		 WHERE id=$1 RETURNING design_id`,
+		 WHERE id=$1 RETURNING design_id, fulfillment_type`,
 		orderID,
 		event.Data.Attributes.UserEmail,
 		event.Data.Attributes.TestMode,
 		event.Data.Attributes.Urls.Receipt,
 		event.Data.Attributes.Total,
 		event.Data.Attributes.Currency,
-	).Scan(&designID)
+	).Scan(&designID, &fulfillmentType)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -159,6 +160,31 @@ func lemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+		var emailCfg struct {
+		PrimaryAlphabet   string  `json:"primary_alphabet"`
+		SecondaryAlphabet *string `json:"secondary_alphabet"`
+		KeycapMode        string  `json:"keycap_mode"`
+	}
+	json.Unmarshal(config, &emailCfg)
+	secondary := ""
+	if emailCfg.SecondaryAlphabet != nil {
+		secondary = *emailCfg.SecondaryAlphabet
+	}
+
+	emailData := OrderEmailData{
+		CustomerEmail:     event.Data.Attributes.UserEmail,
+		OrderID:           orderID,
+		FulfillmentType:   fulfillmentType,
+		PrimaryAlphabet:   emailCfg.PrimaryAlphabet,
+		SecondaryAlphabet: secondary,
+		KeycapMode:        emailCfg.KeycapMode,
+	}
+
+	if fulfillmentType == "print" {
+		sendCustomerEmail(emailData)
+	}
+	sendAdminNotification(emailData, event.Data.Attributes.Total, event.Data.Attributes.Currency)
 
 	rdb.LPush(ctx, "pdf_jobs_queue", orderID)
 	w.WriteHeader(http.StatusOK)
