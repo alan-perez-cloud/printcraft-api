@@ -181,10 +181,14 @@ func lemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 		KeycapMode:        emailCfg.KeycapMode,
 	}
 
-	if fulfillmentType == "print" {
-		sendCustomerEmail(emailData)
+		if fulfillmentType == "print" {
+		if err := sendCustomerEmail(emailData); err != nil {
+			fmt.Printf("Error enviando email cliente (order %d): %v\n", orderID, err)
+		}
 	}
-	sendAdminNotification(emailData, event.Data.Attributes.Total, event.Data.Attributes.Currency)
+	if err := sendAdminNotification(emailData, event.Data.Attributes.Total, event.Data.Attributes.Currency); err != nil {
+		fmt.Printf("Error enviando email admin (order %d): %v\n", orderID, err)
+	}
 
 	rdb.LPush(ctx, "pdf_jobs_queue", orderID)
 	w.WriteHeader(http.StatusOK)
