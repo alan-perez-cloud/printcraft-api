@@ -335,13 +335,17 @@ func processJob(ctx context.Context, conn *pgx.Conn, orderID int) error {
 		"SELECT customer_email, fulfillment_type FROM orders WHERE id=$1", orderID,
 	).Scan(&customerEmail, &fulfillmentType)
 	if err == nil && fulfillmentType == "digital" && customerEmail != "" {
-		sendDigitalEmail(OrderEmailData{
+    if emailErr := sendDigitalEmail(OrderEmailData{
 			CustomerEmail:     customerEmail,
 			PrimaryAlphabet:   cfg.PrimaryAlphabet,
 			SecondaryAlphabet: "",
 			KeycapMode:        string(cfg.KeyMode),
 			DownloadURL:       downloadURL,
-		})
+		}); emailErr != nil {
+        fmt.Printf("Error enviando email (order %d): %v\n", orderID, emailErr)
+    }
+
+
 	}
 
 	return nil
