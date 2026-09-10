@@ -44,8 +44,8 @@ func sendCustomerEmail(data OrderEmailData) error {
 func sendAdminNotification(data OrderEmailData, amount int, currency string) error {
 	subject := fmt.Sprintf("🔔 Nueva venta - Orden #%d", data.OrderID)
 	body := fmt.Sprintf(
-		"Cliente: %s\nTipo: %s\nMonto: %d %s\nAlfabetos: %s + %s",
-		data.CustomerEmail, data.FulfillmentType, amount, currency, data.PrimaryAlphabet, data.SecondaryAlphabet,
+		"Cliente: %s\nTipo: %s\nMonto: %.2f %s\nAlfabetos: %s + %s",
+		data.CustomerEmail, data.FulfillmentType, float64(amount)/100, currency, data.PrimaryAlphabet, data.SecondaryAlphabet,
 	)
 	return dispatchEmail(os.Getenv("ADMIN_EMAIL"), subject, body)
 }
